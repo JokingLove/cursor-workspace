@@ -1,0 +1,2 @@
+# cursor-workspace
+cursor workspace
