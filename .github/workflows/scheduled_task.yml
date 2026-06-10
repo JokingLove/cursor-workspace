@@ -1,0 +1,84 @@
+name: 定时任务
+
+on:
+  schedule:
+    # 每天 UTC 时间 00:00 运行（北京时间 08:00）
+    - cron: '0 0 * * *'
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  run-task:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+      
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: 执行定时任务
+        id: run_task
+        run: |
+          python3 scheduled_task.py
+          echo "task_completed=true" >> $GITHUB_OUTPUT
+      
+      - name: 发送结果到 Slack
+        if: steps.run_task.outputs.task_completed == 'true'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "⚠️ SLACK_WEBHOOK_URL 未配置，跳过 Slack 通知"
+            exit 0
+          fi
+          
+          # 读取任务结果
+          RESULT=$(cat task_result.json)
+          
+          # 发送到 Slack
+          curl -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d "{
+              \"text\": \"📊 定时任务执行完成\",
+              \"blocks\": [
+                {
+                  \"type\": \"header\",
+                  \"text\": {
+                    \"type\": \"plain_text\",
+                    \"text\": \"✅ 定时任务执行成功\"
+                  }
+                },
+                {
+                  \"type\": \"section\",
+                  \"fields\": [
+                    {
+                      \"type\": \"mrkdwn\",
+                      \"text\": \"*执行时间:*\n$(date -u +'%Y-%m-%d %H:%M:%S UTC')\"
+                    },
+                    {
+                      \"type\": \"mrkdwn\",
+                      \"text\": \"*状态:*\n:white_check_mark: SUCCESS\"
+                    }
+                  ]
+                },
+                {
+                  \"type\": \"section\",
+                  \"text\": {
+                    \"type\": \"mrkdwn\",
+                    \"text\": \"\`\`\`$(echo '$RESULT' | jq -r .)\`\`\`\"
+                  }
+                }
+              ]
+            }"
+          
+          echo "✅ 结果已发送到 Slack"
+      
+      - name: 上传任务结果
+        uses: actions/upload-artifact@v4
+        with:
+          name: task-result
+          path: task_result.json
+          retention-days: 30
